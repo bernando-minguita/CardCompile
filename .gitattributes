@@ -1,0 +1,26 @@
+# Normalise all text files to LF in the repository; Windows tooling gets CRLF
+# on checkout so batch files, the spec and the Python sources keep working.
+* text=auto eol=lf
+
+*.bat        text eol=crlf
+*.cmd        text eol=crlf
+*.ps1        text eol=crlf
+*.spec       text eol=crlf
+*.py         text eol=lf
+*.md         text eol=lf
+*.sql        text eol=lf
+*.qss        text eol=lf
+*.json       text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+
+# Binaries
+*.png        binary
+*.jpg        binary
+*.jpeg       binary
+*.ico        binary
+*.pdf        binary
+*.ttf        binary
+*.otf        binary
+*.exe        binary
+*.dll        binary

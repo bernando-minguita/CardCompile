@@ -1,0 +1,9 @@
+﻿# CardCompile - runtime dependencies (Python 3.14, Windows 10/11)
+# Installed in the default site-packages of the interpreter:
+#   py -3.14 -m pip install -r requirements.txt
+PySide6==6.12.0
+Pillow==12.3.0
+PyMuPDF==2.0.0
+
+# Development / build only (not required at runtime):
+#   py -3.14 -m pip install pytest pyinstaller

@@ -1,0 +1,61 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (Windows, Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.14"]
+
+    env:
+      # The suite builds real Qt widgets; no display is needed with this plugin.
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pyflakes
+
+      - name: Show versions
+        run: |
+          python --version
+          python -c "import PySide6, PIL, pymupdf; print('PySide6', PySide6.__version__); print('Pillow', PIL.__version__); print('PyMuPDF', pymupdf.__doc__)"
+
+      - name: Report undefined names (informational)
+        # The suite's static-analysis test fails the build on undefined names;
+        # this step only prints the full pyflakes report into the log.
+        continue-on-error: true
+        run: python -m pyflakes app core database graphics models commands tests main.py
+
+      - name: Run the test suite
+        run: python -m pytest -q --durations=10
+
+      - name: Headless UI smoke test
+        run: python tests/ui_smoke.py

@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# PyInstaller output (the executable is built locally, never committed)
+build/
+dist/
+*.spec.bak
+
+# Tool caches and coverage artefacts
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Application data (never commit user content: projects, scans, exports)
+projects/
+exports/
+sample_library/
+logs/*
+!logs/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Local build/run artefacts
+build_log.txt
+*.log
+
+# Scratch captures (temporary tool output, never part of the project)
+_*.txt
+_*.py
+_*.png
+# ...but package markers must never be ignored by the pattern above
+!__init__.py
+
+# Local git backups (a previous .git directory kept for reference)
+.git.old-backup/
+.git.*/
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Local editor rules (Kilo configuration, never committed)
+.clinerules/
+
