@@ -1,4 +1,4 @@
-﻿-- CardCompile - project database schema (version 7)
+﻿-- CardCompile - project database schema (version 8)
 -- All geometry columns are millimetres; crop values are normalised fractions.
 
 CREATE TABLE IF NOT EXISTS schema_version (

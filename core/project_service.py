@@ -1,4 +1,4 @@
-﻿"""Project lifecycle: create, open, rename, close and inspect projects.
+"""Project lifecycle: create, open, rename, close and inspect projects.
 
 Every project is an isolated folder containing ``project.db``.  Creating a
 project never overwrites an existing folder, and opening one verifies the
@@ -6,8 +6,6 @@ database before the workspace is handed to the UI.
 """
 
 from __future__ import annotations
-
-import re
 import shutil
 import sqlite3
 import uuid
@@ -19,173 +17,36 @@ from pathlib import Path
 from core.document_service import DocumentService
 from core.import_service import ImportService
 from core.logging_setup import get_logger
-from core.paper import page_dimensions
 from core.paths import (
     PROJECT_DB_FILENAME,
     documents_root,
     is_inside_app_folder,
     projects_dir,
 )
+from core.project_creation import build_page, sanitize_folder_name
+from core.project_maintenance import (
+    PROBLEM_EMPTY,
+    PROBLEM_FOREIGN,
+    PROBLEM_MISSING,
+    PROBLEM_UNREADABLE,
+    _rebase_thumbnail_paths,
+    _remove_project_artifacts,
+    empty_project_message,
+    looks_like_project,
+    missing_project_message,
+    project_file_problem,
+)
+from core.project_queries import ProjectSummary
 from core.settings_service import SettingsService
 from database.app_database import AppDatabase, KnownProject
 from database.project_database import ProjectDatabase
-from models.pdf_page import PdfPage
 from models.project import Project
 
 LOGGER = get_logger("projects")
 
-_INVALID_FOLDER_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_RESERVED_NAMES = {
-    "con",
-    "prn",
-    "aux",
-    "nul",
-    *(f"com{i}" for i in range(1, 10)),
-    *(f"lpt{i}" for i in range(1, 10)),
-}
-
-
-PROBLEM_MISSING = "missing"
-PROBLEM_EMPTY = "empty"
-PROBLEM_FOREIGN = "foreign"
-PROBLEM_UNREADABLE = "unreadable"
-
-
-def project_file_problem(path: Path) -> str:
-    """Explain why *path* cannot be used as a project, or ``""`` when it can.
-
-    Distinguishes the cases the user can act on:
-
-    * ``missing``  - there is no file at all (moved/renamed/deleted folder).
-    * ``empty``    - a readable SQLite file **without any tables**.  This is
-      what a ``project.db`` looks like when it was copied without its ``-wal``
-      sidecar after a crash: the committed rows lived in that file.
-    * ``foreign``  - a SQLite database that is not ours.
-    * ``unreadable`` - the file exists but cannot be opened/queried.
-    """
-    import sqlite3
-
-    if not path.is_file():
-        return PROBLEM_MISSING
-    try:
-        # ``as_uri()`` percent-encodes the path.  Formatting the raw path into a
-        # URI broke every folder containing ``#`` (SQLite treats it as the start
-        # of a fragment and opened a different, empty file), so a perfectly valid
-        # project was reported as "empty" and could not be reopened.
-        connection = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True, timeout=5.0)
-    except (sqlite3.Error, ValueError):
-        return PROBLEM_UNREADABLE
-    try:
-        rows = connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-    except sqlite3.Error:
-        return PROBLEM_UNREADABLE
-    finally:
-        connection.close()
-    names = {row[0] for row in rows}
-    if "projects" in names:
-        return ""
-    if not names:
-        return PROBLEM_EMPTY
-    return PROBLEM_FOREIGN
-
-
-def looks_like_project(path: Path) -> bool:
-    """Read-only check that *path* really is a project database.
-
-    ``ProjectDatabase`` initializes the current schema on construction, so a
-    foreign SQLite file must be rejected *before* it is opened for writing.
-    """
-    return project_file_problem(path) == ""
-
-
-def empty_project_message(path: Path | str) -> str:
-    """Explain a project database that opens but contains no tables."""
-    return (
-        f"The project database is empty:\n{path}\n\n"
-        "SQLite keeps very recent changes in a sidecar file next to the "
-        "database (project.db-wal) until they are flushed. Copying or backing up "
-        "project.db *alone* leaves that file behind, and everything that was "
-        "still in it is gone.\n\n"
-        "To restore the project:\n"
-        f"  - copy 'project.db', 'project.db-wal' and 'project.db-shm' together, or\n"
-        f"  - restore the backup of the whole folder "
-        f"'{path.parent.name}'.\n\n"
-        "The original scans are never touched by this application."
-    )
-
 
 class ProjectServiceError(RuntimeError):
     """User facing project error (invalid name, missing file, ...)."""
-
-
-def missing_project_message(path: Path | str) -> str:
-    """Explain a missing ``project.db`` and what the user can do about it."""
-    return (
-        f"The project file was not found:\n{path}\n\n"
-        "The folder was moved, renamed or deleted (an update or rebuild of the "
-        "application only removes files inside the application folder).\n\n"
-        "Use 'Locate project file...' to point at the project.db of the moved "
-        "project, or remove it from the list."
-    )
-
-
-def sanitize_folder_name(name: str) -> str:
-    """Turn a project name into a safe Windows folder name."""
-    cleaned = _INVALID_FOLDER_CHARS.sub("_", name).strip().strip(".")
-    cleaned = re.sub(r"\s+", " ", cleaned)
-    if not cleaned:
-        cleaned = "Project"
-    if cleaned.lower() in _RESERVED_NAMES:
-        cleaned = f"{cleaned}_project"
-    return cleaned[:80]
-
-
-@dataclass(slots=True)
-class ProjectSummary:
-    """Lightweight statistics shown on the dashboard."""
-
-    db_path: str
-    name: str
-    description: str
-    project_folder: str
-    document_count: int
-    page_count: int
-    updated_at: str
-    valid: bool = True
-    #: Why the project cannot be used ("" while everything is fine).
-    problem: str = ""
-
-
-def build_page(
-    project: Project,
-    page_size: str,
-    orientation: str,
-    margin_mm: float = 10.0,
-    custom_width_mm: float | None = None,
-    custom_height_mm: float | None = None,
-    page_number: int = 1,
-) -> PdfPage:
-    """Create a :class:`PdfPage` with the requested paper size and margins."""
-    width, height = page_dimensions(
-        page_size, orientation, custom_width_mm, custom_height_mm
-    )
-    page = PdfPage(
-        id=str(uuid.uuid4()),
-        project_id=project.id,
-        page_number=page_number,
-        paper_size=page_size,
-        orientation=orientation,
-        width_mm=width,
-        height_mm=height,
-        margin_top=margin_mm,
-        margin_bottom=margin_mm,
-        margin_left=margin_mm,
-        margin_right=margin_mm,
-    )
-    page.clamp_margins()
-    return page
 
 
 class ProjectWorkspace:

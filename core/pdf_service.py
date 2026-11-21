@@ -57,6 +57,7 @@ class ExportOptions:
     separate_files: bool = False
     cancel_check: Callable[[], bool] | None = None
     progress: Callable[[int, int], None] | None = None
+    format: str = "PDF"
 
 
 @dataclass(slots=True)
@@ -499,8 +500,22 @@ class PdfService:
         options: ExportOptions | None = None,
         category_id: str | None = None,
     ) -> ExportResult:
-        """Render the given pages into a single PDF file."""
+        """Render the given pages into a single output file (PDF or image)."""
         options = options or ExportOptions()
+        fmt = options.format.upper()
+        if fmt == "PDF":
+            return self._export_pages_to_pdf(page_ids, output_path, options, category_id)
+        if fmt in ("PNG", "JPEG", "TIFF"):
+            return self._export_pages_to_images(page_ids, output_path, options, category_id)
+        raise PdfExportError(f"Unsupported export format: {options.format}")
+
+    def _export_pages_to_pdf(
+        self,
+        page_ids: Sequence[str],
+        output_path: str | Path,
+        options: ExportOptions,
+        category_id: str | None = None,
+    ) -> ExportResult:
         documents = self._document_map()
         pages = [self._layout.page(page_id) for page_id in page_ids]
         pages = [page for page in pages if page is not None]
@@ -568,6 +583,89 @@ class PdfService:
         result.output_paths.append(str(output_path))
         LOGGER.info("Exported %s page(s) to %s", result.page_count, output_path)
         return result
+
+    def _export_pages_to_images(
+        self,
+        page_ids: Sequence[str],
+        output_path: str | Path,
+        options: ExportOptions,
+        category_id: str | None = None,
+    ) -> ExportResult:
+        """Render each page to an image file (PNG, JPEG or TIFF).
+
+        Pages are first composed into a *temporary* PDF document (reusing the
+        full item/label rendering pipeline), then each page is rasterised and
+        saved as a standalone image file next to *output_path*.
+
+        A temporary file is used for the intermediate PDF because on Windows a
+        file cannot be overwritten while another handle (the ``pymupdf.open``
+        below) still has it open.
+        """
+        import tempfile
+
+        # Build a temporary PDF with all pages, then rasterise each one.
+        # Never write to *output_path* directly: it is still open below when
+        # the pixmaps are saved, which Windows refuses.
+        handle, tmp_name = tempfile.mkstemp(prefix=".dpb_export_", suffix=".pdf")
+        os.close(handle)
+        tmp_path = Path(tmp_name)
+        try:
+            self._export_pages_to_pdf(page_ids, tmp_path, options, category_id)
+            # Re-open the temporary PDF and render each page to an image.
+            document = pymupdf.open(str(tmp_path))
+            try:
+                result = ExportResult()
+                dpi = dpi_for_preset(options.quality)
+                # Pixmap zoom factor: 72 pt per inch at the target DPI.
+                zoom = dpi / 72.0
+                mat = pymupdf.Matrix(zoom, zoom)
+                for index, page in enumerate(document):
+                    if options.cancel_check is not None and options.cancel_check():
+                        raise PdfExportCancelled("Export cancelled.")
+                    if options.progress is not None:
+                        options.progress(index, len(document))
+                    pix = page.get_pixmap(matrix=mat, alpha=False)
+                    # Determine output file name: single file or one per page.
+                    if len(document) == 1:
+                        target = Path(output_path)
+                    else:
+                        stem = Path(output_path).stem
+                        suffix = Path(output_path).suffix or f".{options.format.lower()}"
+                        target = Path(output_path).with_name(f"{stem}_page_{index + 1:03d}{suffix}")
+                    self._save_pixmap(pix, target, options.format, options)
+                    result.output_paths.append(str(target))
+                    result.page_count = index + 1
+            finally:
+                document.close()
+        finally:
+            tmp_path.unlink(missing_ok=True)
+        fmt = options.format.upper()
+        LOGGER.info("Exported %s page(s) as %s images", result.page_count, fmt)
+        return result
+
+    @staticmethod
+    def _save_pixmap(
+        pix: pymupdf.Pixmap, target: Path, fmt: str, options: ExportOptions
+    ) -> None:
+        """Save a rendered pixmap to *target* in the requested image format."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fmt_upper = fmt.upper()
+        try:
+            if fmt_upper == "PNG":
+                pix.save(str(target))
+            elif fmt_upper == "JPEG":
+                # JPEG does not support alpha; convert to RGB first.
+                if pix.alpha:
+                    pix = pymupdf.Pixmap(pix, 0)
+                quality = 92 if options.quality in ("High", "Original") else 85
+                pix.save(str(target), jpg_quality=quality)
+            elif fmt_upper == "TIFF":
+                pix.save(str(target))
+            else:
+                raise PdfExportError(f"Unsupported image format: {fmt}")
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
 
     def export_project(
         self,
@@ -677,10 +775,12 @@ class PdfService:
             raise
 
     # ------------------------------------------------------------ export history
-    def record_export(self, output_path: str, page_count: int, quality: str) -> None:
+    def record_export(
+        self, output_path: str, page_count: int, quality: str, format: str = "PDF"
+    ) -> None:
         try:
             self._layout.db.exports.insert(
-                self.workspace.project.id, output_path, page_count, quality
+                self.workspace.project.id, output_path, page_count, quality, format
             )
         except Exception:  # pragma: no cover - history is not critical
             LOGGER.warning("Could not record export history for %s", output_path)

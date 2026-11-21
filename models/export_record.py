@@ -12,6 +12,10 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+#: Export formats supported by the application.
+EXPORT_FORMATS = ("PDF", "PNG", "JPEG", "TIFF")
+
+
 @dataclass(slots=True)
 class ExportRecord:
     id: str
@@ -19,6 +23,7 @@ class ExportRecord:
     output_path: str
     page_count: int = 0
     quality: str = "High"
+    format: str = "PDF"
     exported_at: str = field(default_factory=_now)
 
     @property
@@ -48,6 +53,7 @@ class ExportRecord:
             output_path=data["output_path"],
             page_count=int(data.get("page_count") or 0),
             quality=data.get("quality") or "High",
+            format=data.get("format") or "PDF",
             exported_at=data.get("exported_at") or _now(),
         )
 
@@ -58,5 +64,6 @@ class ExportRecord:
             "output_path": self.output_path,
             "page_count": self.page_count,
             "quality": self.quality,
+            "format": self.format,
             "exported_at": self.exported_at,
         }

@@ -15,7 +15,7 @@ from typing import Any, Iterable, Iterator, Sequence
 from core.logging_setup import get_logger
 
 LOGGER = get_logger("database")
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 #: Additive migrations for the *project* schema, keyed by the version that
 #: introduced them.  ``init_schema`` applies every entry newer than the version
@@ -45,6 +45,9 @@ PROJECT_MIGRATIONS: dict[int, tuple[tuple[str, str, str], ...]] = {
         ("page_items", "adjust_saturation", "REAL NOT NULL DEFAULT 1.0"),
         ("page_items", "adjust_sharpness", "REAL NOT NULL DEFAULT 1.0"),
         ("page_items", "adjust_shadow", "INTEGER NOT NULL DEFAULT 0"),
+    ),
+    8: (
+        ("export_history", "format", "TEXT NOT NULL DEFAULT 'PDF'"),
     ),
 }
 

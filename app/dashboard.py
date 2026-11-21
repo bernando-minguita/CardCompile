@@ -140,7 +140,7 @@ class Dashboard(QWidget):
         self.exports_list.doubleClicked.connect(self._open_selected_export)
         self.exports_list.setMinimumHeight(150)
         exports_layout.addWidget(self.exports_list)
-        self.open_export_button = QPushButton("Open PDF")
+        self.open_export_button = QPushButton("Open Export")
         exports_layout.addWidget(
             self.open_export_button, alignment=Qt.AlignmentFlag.AlignRight
         )

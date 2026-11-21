@@ -311,7 +311,7 @@ def test_export_pauses_autosave(window, monkeypatch):
     win._schedule_autosave()
     assert win.autosave_timer.isActive()
 
-    win.export_pdf()
+    win.export()
 
     assert seen == [False], "autosave kept running during the export"
     assert win.autosave_timer.isActive(), "the timer was not re-armed afterwards"

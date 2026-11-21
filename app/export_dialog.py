@@ -28,6 +28,7 @@ from core.logging_setup import get_logger
 from core.pdf_service import ExportOptions, PdfService
 from core.settings_service import SettingsService
 from core.validation_service import ValidationService
+from models.export_record import EXPORT_FORMATS
 
 LOGGER = get_logger("export_dialog")
 
@@ -55,15 +56,31 @@ def safe_pdf_file_name(name: str, fallback: str = "document") -> str:
     characters such as ``?`` or ``*`` only failed later during the write. The
     name is flattened to a single component; Unicode (Arabic) text is preserved.
     """
+    return safe_export_file_name(name, "pdf", fallback)
+
+
+def safe_export_file_name(name: str, ext: str, fallback: str = "document") -> str:
+    """Turn any user input into a safe file name with the given extension.
+
+    ``ext`` is the file extension without a leading dot (e.g. ``"pdf"``,
+    ``"png"``).  Any existing extension on *name* is stripped first so that
+    switching formats (e.g. from ``.pdf`` to ``.tiff``) replaces rather than
+    appends the extension.  The name is flattened to a single component;
+    Unicode text is preserved.  The returned name always ends with ``.ext``.
+    """
     text = (name or "").strip()
-    if text.lower().endswith(".pdf"):
-        text = text[:-4]
+    # Strip any existing extension so switching formats replaces it cleanly.
+    dot = text.rfind(".")
+    if dot > 0:
+        text = text[:dot]
+    if text.lower().endswith(f".{ext.lower()}"):
+        text = text[: -len(ext) - 1]
     text = _INVALID_NAME_CHARS.sub("_", text)
     text = text.replace("..", "_")
     text = re.sub(r"\s+", " ", text).strip(" .")
     if not text or text.strip("_").lower() in _RESERVED_NAMES:
         text = fallback
-    return f"{text[:120]}.pdf"
+    return f"{text[:120]}.{ext.lower()}"
 
 
 class ExportDialog(QDialog):
@@ -85,7 +102,7 @@ class ExportDialog(QDialog):
         self.exported_paths: list[str] = []
         self.validation_report = None
 
-        self.setWindowTitle("Export PDF")
+        self.setWindowTitle("Export")
         self.setMinimumWidth(560)
         self._build_ui()
 
@@ -105,6 +122,13 @@ class ExportDialog(QDialog):
         folder_row.addWidget(self.folder_edit, 1)
         folder_row.addWidget(browse_button)
         form.addRow("Output folder", folder_row)
+
+        self.format_combo = QComboBox()
+        for fmt in EXPORT_FORMATS:
+            self.format_combo.addItem(fmt, fmt)
+        self.format_combo.setCurrentText("PDF")
+        self.format_combo.currentIndexChanged.connect(self._on_format_changed)
+        form.addRow("Format", self.format_combo)
 
         self.name_edit = QLineEdit(self._default_name())
         form.addRow("File name", self.name_edit)
@@ -138,24 +162,34 @@ class ExportDialog(QDialog):
         )
         form.addRow("Quality", self.quality_combo)
 
-        self.compress_check = QCheckBox("Compress the PDF (smaller file)")
+        # PDF-specific options (hidden for image formats).
+        self._pdf_options_widgets: list = []
+
+        self.compress_check = QCheckBox("Compress the output (smaller file)")
         self.compress_check.setChecked(
             bool(self.settings.get("pdf", "default_compression", True))
         )
         form.addRow(self.compress_check)
+        self._pdf_options_widgets.append(self.compress_check)
 
         self.password_edit = QLineEdit()
         self.password_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_edit.setPlaceholderText("Optional - leave empty for no protection")
+        self.password_edit.setPlaceholderText(
+            "Optional - leave empty for no protection"
+        )
         form.addRow("Password", self.password_edit)
+        self._pdf_options_widgets.append(self.password_edit)
 
         self.password_confirm = QLineEdit()
         self.password_confirm.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_confirm.setPlaceholderText("Repeat the password")
         form.addRow("Confirm password", self.password_confirm)
+        self._pdf_options_widgets.append(self.password_confirm)
 
         self.title_edit = QLineEdit()
-        form.addRow("PDF title", self.title_edit)
+        form.addRow("Document title", self.title_edit)
+        self._pdf_options_widgets.append(self.title_edit)
+
         layout.addLayout(form)
 
         note = QLabel(
@@ -165,6 +199,10 @@ class ExportDialog(QDialog):
         note.setObjectName("Muted")
         note.setWordWrap(True)
         layout.addWidget(note)
+        self._pdf_options_widgets.append(note)
+
+        # Initial visibility based on the default format.
+        self._on_format_changed()
 
         self.progress = QProgressBar()
         self.progress.setVisible(False)
@@ -218,7 +256,7 @@ class ExportDialog(QDialog):
             )
         except (KeyError, ValueError):
             name = f"{safe}_{datetime.now().strftime('%Y-%m-%d')}"
-        return safe_pdf_file_name(name)
+        return safe_export_file_name(name, self.format_combo.currentText())
 
     def _browse(self) -> None:
         folder = QFileDialog.getExistingDirectory(
@@ -232,6 +270,24 @@ class ExportDialog(QDialog):
             self.category_combo.setEnabled(
                 self.scope_combo.currentData() == SCOPE_CATEGORY
             )
+
+    def _on_format_changed(self) -> None:
+        """Show/hide PDF-specific options depending on the selected format.
+
+        Also replace the file name extension so it matches the new format
+        (e.g. ``document.pdf`` becomes ``document.png`` when switching to PNG).
+        """
+        fmt = self.format_combo.currentText()
+        is_pdf = fmt.upper() == "PDF"
+        for widget in self._pdf_options_widgets:
+            widget.setVisible(is_pdf)
+
+        # Replace the extension in the file name to match the new format.
+        current = self.name_edit.text().strip()
+        if current:
+            self.name_edit.blockSignals(True)
+            self.name_edit.setText(safe_export_file_name(current, fmt))
+            self.name_edit.blockSignals(False)
 
     def _pages(self) -> list[str]:
         pages = self.layout.pages()
@@ -267,12 +323,16 @@ class ExportDialog(QDialog):
             QMessageBox.warning(self, "Export", f"Cannot use this folder:\n{exc}")
             return
 
-        password = self.password_edit.text()
-        if password != self.password_confirm.text():
-            QMessageBox.warning(self, "Export", "The two passwords do not match.")
-            return
+        password = ""
+        is_pdf = self.format_combo.currentText().upper() == "PDF"
+        if is_pdf:
+            password = self.password_edit.text()
+            if password != self.password_confirm.text():
+                QMessageBox.warning(self, "Export", "The two passwords do not match.")
+                return
 
-        name = safe_pdf_file_name(self.name_edit.text())
+        fmt = self.format_combo.currentText()
+        name = safe_export_file_name(self.name_edit.text(), fmt)
         if scope == SCOPE_SEPARATE:
             # One file per page: the target is the *folder*, so there is no single
             # file name to validate.  Comparing folder.parent with folder here
@@ -300,19 +360,16 @@ class ExportDialog(QDialog):
                 return
         elif scope == SCOPE_SEPARATE:
             # Separate exports write one file per page - warn when the folder
-            # already contains files of this base name.  The match is done on
-            # the literal name, not with ``glob``: a project called
-            # "Report [final]" produced the pattern "Report [final]_page_*.pdf",
-            # where the brackets open a character class, so the check found
-            # nothing and the previous export was overwritten without asking.
-            base = name[:-4] if name.lower().endswith(".pdf") else name
+            # already contains files of this base name.
+            ext = fmt.lower()
+            base = name[: -len(ext) - 1] if name.lower().endswith(f".{ext}") else name
             prefix = f"{base}_page_"
             existing = sorted(
                 path
                 for path in (folder.iterdir() if folder.is_dir() else ())
                 if path.name.startswith(prefix)
-                and path.name.endswith(".pdf")
-                and path.name[len(prefix) : -4].isdigit()
+                and path.name.endswith(f".{ext}")
+                and path.name[len(prefix) : -len(ext) - 1].isdigit()
             )
             if existing:
                 answer = QMessageBox.question(
@@ -342,6 +399,7 @@ class ExportDialog(QDialog):
             compress=self.compress_check.isChecked(),
             user_password=password,
             owner_password=password,
+            format=fmt,
             metadata={
                 "title": self.title_edit.text().strip()
                 or self.layout.workspace.project.name
@@ -422,26 +480,28 @@ class ExportDialog(QDialog):
             for page_id in exported_ids
             if page_id in by_id
         ]
+        is_pdf = self.format_combo.currentText().upper() == "PDF"
         reports = []
-        if self.scope_combo.currentData() == SCOPE_SEPARATE:
-            for index, path in enumerate(self.exported_paths):
+        if is_pdf:
+            if self.scope_combo.currentData() == SCOPE_SEPARATE:
+                for index, path in enumerate(self.exported_paths):
+                    reports.append(
+                        validator.validate_pdf(
+                            path,
+                            expected_pages=1,
+                            expected_sizes_mm=expected_sizes[index : index + 1],
+                        )
+                    )
+            elif self.scope_combo.currentData() == SCOPE_CATEGORY:
+                reports.append(validator.validate_pdf(self.exported_paths[0]))
+            else:
                 reports.append(
                     validator.validate_pdf(
-                        path,
-                        expected_pages=1,
-                        expected_sizes_mm=expected_sizes[index : index + 1],
+                        self.exported_paths[0],
+                        expected_pages=len(exported_ids),
+                        expected_sizes_mm=expected_sizes,
                     )
                 )
-        elif self.scope_combo.currentData() == SCOPE_CATEGORY:
-            reports.append(validator.validate_pdf(self.exported_paths[0]))
-        else:
-            reports.append(
-                validator.validate_pdf(
-                    self.exported_paths[0],
-                    expected_pages=len(exported_ids),
-                    expected_sizes_mm=expected_sizes,
-                )
-            )
         self.validation_report = reports[0] if reports else None
 
         # A separate export writes one page per file, so the history must not
@@ -454,9 +514,13 @@ class ExportDialog(QDialog):
             pages_per_file = getattr(result, "page_count", 0) or len(exported_ids)
         for path in self.exported_paths:
             self.pdf_service.record_export(
-                path, pages_per_file, self.quality_combo.currentText()
+                path,
+                pages_per_file,
+                self.quality_combo.currentText(),
+                format=self.format_combo.currentText(),
             )
 
+        fmt_label = self.format_combo.currentText().lower()
         messages = [
             f"{issue.severity.upper()}: {issue.message}"
             for report in reports
@@ -472,7 +536,7 @@ class ExportDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "Export finished with warnings",
-                "The PDF was created but validation reported:\n\n"
+                f"The {fmt_label} was created but validation reported:\n\n"
                 + "\n".join(messages[:10]),
             )
         else:

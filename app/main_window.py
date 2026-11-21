@@ -304,7 +304,7 @@ class MainWindow(QMainWindow):
             self.add_selected_to_new_pages_custom,
         )
 
-        self.action_export = a("Export PDF...", self.export_pdf, QKeySequence("Ctrl+E"))
+        self.action_export = a("Export...", self.export, QKeySequence("Ctrl+E"))
         self.action_preview = a("Preview PDF", self.preview_pdf)
         # These four add the *library selection* to newly created pages.
         self.action_layout_1 = a(
@@ -1410,7 +1410,7 @@ class MainWindow(QMainWindow):
             self.editor.update_scene_settings()
 
     # ---------------------------------------------------------- export / preview
-    def export_pdf(self) -> None:
+    def export(self) -> None:
         if not self._require_editor():
             return
         dialog = ExportDialog(
@@ -1432,12 +1432,13 @@ class MainWindow(QMainWindow):
             if dialog.exported_paths:
                 self.context.last_export_path = dialog.exported_paths[0]
             self.dashboard.refresh()
-            self.show_status_message("PDF exported and validated")
+            fmt = dialog.format_combo.currentText().lower()
+            self.show_status_message(f"{fmt.upper()} exported and validated")
             if dialog.exported_paths:
                 answer = QMessageBox.question(
                     self,
                     "Export finished",
-                    "The PDF was created successfully.\n\nOpen it now?",
+                    f"The {fmt.upper()} file was created successfully.\n\nOpen it now?",
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                     QMessageBox.StandardButton.Yes,
                 )

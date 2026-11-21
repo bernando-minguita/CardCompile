@@ -120,7 +120,12 @@ class ExportRepository(Protocol):
     """Read/write access to the ``export_history`` table."""
 
     def insert(
-        self, project_id: str, output_path: str, page_count: int, quality: str
+        self,
+        project_id: str,
+        output_path: str,
+        page_count: int,
+        quality: str,
+        format: str = "PDF",
     ) -> ExportRecord: ...
     def list_for_project(self, project_id: str) -> list[ExportRecord]: ...
 
