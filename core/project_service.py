@@ -11,10 +11,13 @@ import re
 import shutil
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from core.document_service import DocumentService
+from core.import_service import ImportService
 from core.logging_setup import get_logger
 from core.paper import page_dimensions
 from core.paths import (
@@ -214,6 +217,29 @@ class ProjectWorkspace:
     def db_path(self) -> Path:
         return self.database.path
 
+    # ------------------------------------------------------------ service accessors
+    @property
+    def document_service(self) -> DocumentService:
+        """Lazily created document service for this workspace."""
+        if not hasattr(self, "_document_service"):
+            self._document_service = DocumentService(self)
+        return self._document_service
+
+    @property
+    def layout_service(self) -> LayoutService:
+        """Lazily created layout service for this workspace."""
+        if not hasattr(self, "_layout_service"):
+            from core.layout_service import LayoutService  # noqa: PLC0415
+            self._layout_service = LayoutService(self)
+        return self._layout_service
+
+    @property
+    def import_service(self) -> ImportService:
+        """Lazily created import service for this workspace."""
+        if not hasattr(self, "_import_service"):
+            self._import_service = ImportService(self)
+        return self._import_service
+
     def close(self) -> None:
         # ``checkpoint()`` would re-open a closed database (the ``connection``
         # property opens lazily), so it is skipped once the database is already
@@ -224,6 +250,17 @@ class ProjectWorkspace:
                 self.database.checkpoint()
         finally:
             self.database.close()
+
+    def checkpoint(self) -> None:
+        """Flush the WAL so the project database file on disk is complete.
+
+        Safe to call multiple times; a no-op when the database is already closed.
+        """
+        try:
+            if self.database.db.is_open:
+                self.database.checkpoint()
+        except Exception:  # pragma: no cover - best effort
+            LOGGER.debug("Checkpoint failed")
 
     def touch(self) -> None:
         self.project.touch()
@@ -282,6 +319,28 @@ class ProjectService:
     @property
     def app_db(self) -> AppDatabase:
         return self._app_db
+
+    # ---------------------------------------------------------------- transactions
+    @contextmanager
+    def unit_of_work(self):
+        """Provide a single database transaction spanning multiple repositories.
+
+        Repository methods each open their own transaction.  When a service
+        operation needs to touch several tables atomically, use this context
+        manager so either every change commits or none do.
+
+        Usage::
+
+            with self.unit_of_work():
+                project.name = "New name"
+                self._app_db.register_project(project)
+                self._app_db.touch_project(project.id)
+
+        The underlying connection's ``transaction()`` context manager is reused,
+        so nested calls are safe (they share the same connection).
+        """
+        with self._app_db.db.transaction():
+            yield
 
     def known_projects(self, limit: int | None = None) -> list[KnownProject]:
         return self._app_db.list_projects(limit)

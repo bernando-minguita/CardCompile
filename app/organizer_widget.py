@@ -300,9 +300,7 @@ class OrganizerWidget(QWidget):
         self.category_filter.clear()
         self.category_filter.addItem("All categories", None)
         if self._workspace is not None:
-            for category in self._workspace.database.categories.list_for_project(
-                self._workspace.id
-            ):
+            for category in self._workspace.document_service.categories():
                 self.category_filter.addItem(category.name, category.id)
         index = self.category_filter.findData(current)
         self.category_filter.setCurrentIndex(max(0, index))
@@ -650,9 +648,7 @@ class OrganizerWidget(QWidget):
     def _change_category(self, documents: list[Document]) -> None:
         if self._workspace is None or not documents:
             return
-        categories = self._workspace.database.categories.list_for_project(
-            self._workspace.id
-        )
+        categories = self._workspace.document_service.categories()
         menu = QMenu(self)
         for category in categories:
             action = menu.addAction(category.name)
@@ -736,9 +732,7 @@ class OrganizerWidget(QWidget):
         menu.addSeparator()
         category_menu = menu.addMenu("Set category")
         if self._workspace is not None:
-            for category in self._workspace.database.categories.list_for_project(
-                self._workspace.id
-            ):
+            for category in self._workspace.document_service.categories():
                 action = category_menu.addAction(category.name)
                 action.triggered.connect(
                     lambda _checked=False, cid=category.id: self._assign_category(cid)

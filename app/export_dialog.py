@@ -125,9 +125,7 @@ class ExportDialog(QDialog):
 
         self.category_combo = QComboBox()
         self.category_combo.addItem("All categories", None)
-        for category in self.layout.workspace.database.categories.list_for_project(
-            self.layout.workspace.id
-        ):
+        for category in self.layout.workspace.document_service.categories():
             self.category_combo.addItem(category.name, category.id)
         self.category_combo.setEnabled(False)
         form.addRow("Category", self.category_combo)

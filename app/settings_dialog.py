@@ -263,9 +263,7 @@ class SettingsDialog(QDialog):
         if self.workspace is None or not hasattr(self, "category_list"):
             return
         self.category_list.clear()
-        for category in self.workspace.database.categories.list_for_project(
-            self.workspace.id
-        ):
+        for category in self.workspace.document_service.categories():
             self.category_list.addItem(f"{category.name}  ({category.id[:8]})")
             item = self.category_list.item(self.category_list.count() - 1)
             item.setData(32, category.id)
@@ -276,7 +274,7 @@ class SettingsDialog(QDialog):
         name, ok = QInputDialog.getText(self, "New category", "Category name")
         if not ok or not name.strip():
             return
-        self.workspace.database.categories.create(self.workspace.id, name.strip())
+        self.workspace.document_service.create_category(name.strip())
         self._reload_categories()
 
     def _selected_category_id(self) -> str | None:
@@ -287,14 +285,14 @@ class SettingsDialog(QDialog):
         category_id = self._selected_category_id()
         if category_id is None or self.workspace is None:
             return
-        category = self.workspace.database.categories.get(category_id)
+        category = self.workspace.document_service.get_category(category_id)
         if category is None:
             return
         name, ok = QInputDialog.getText(
             self, "Rename category", "Category name", text=category.name
         )
         if ok and name.strip():
-            self.workspace.database.categories.rename(category_id, name.strip())
+            self.workspace.document_service.rename_category(category_id, name.strip())
             self._reload_categories()
 
     def _delete_category(self) -> None:
@@ -309,7 +307,7 @@ class SettingsDialog(QDialog):
             QMessageBox.StandardButton.No,
         )
         if answer == QMessageBox.StandardButton.Yes:
-            self.workspace.database.categories.delete(category_id)
+            self.workspace.document_service.delete_category(category_id)
             self._reload_categories()
 
     # --------------------------------------------------------------- load / save

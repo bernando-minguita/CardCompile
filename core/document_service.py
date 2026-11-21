@@ -387,3 +387,45 @@ class DocumentService:
         mapping: dict[str | None, str] = {category.id: category.name for category in categories}
         mapping[None] = "Uncategorised"
         return mapping
+
+    def categories(self) -> list:
+        """Return all categories for the current project, ordered by sort_order."""
+        return self._workspace.database.categories.list_for_project(
+            self._workspace.project.id
+        )
+
+    def document_count(self) -> int:
+        """Return the total number of documents (including hidden ones)."""
+        return self._workspace.database.documents.count(self._workspace.project.id)
+
+    def page_count(self) -> int:
+        """Return the total number of pages in the current project."""
+        return self._workspace.database.pages.count(self._workspace.project.id)
+
+    # ------------------------------------------------------------------ categories
+    def create_category(self, name: str) -> object:
+        """Create a new category for the current project."""
+        from models.category import Category
+        import uuid
+        category = Category(
+            id=str(uuid.uuid4()),
+            project_id=self._workspace.project.id,
+            name=name.strip(),
+        )
+        self._workspace.database.categories.insert(category)
+        return category
+
+    def get_category(self, category_id: str) -> object | None:
+        """Return a category by id, or None if not found."""
+        return self._workspace.database.categories.get(category_id)
+
+    def rename_category(self, category_id: str, name: str) -> None:
+        """Rename an existing category."""
+        category = self.get_category(category_id)
+        if category is not None:
+            category.name = name.strip()
+            self._workspace.database.categories.update(category)
+
+    def delete_category(self, category_id: str) -> None:
+        """Delete a category. Documents keep existing but become uncategorised."""
+        self._workspace.database.categories.delete(category_id)

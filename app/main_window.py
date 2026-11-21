@@ -967,7 +967,7 @@ class MainWindow(QMainWindow):
             return self.save_project_as()
         try:
             self.workspace.touch()
-            self.workspace.database.checkpoint()
+            self.workspace.checkpoint()
         except Exception as exc:  # pragma: no cover - defensive
             QMessageBox.critical(
                 self, "Save project", f"The project could not be saved:\n{exc}"
@@ -1099,7 +1099,7 @@ class MainWindow(QMainWindow):
             return
         try:
             self.workspace.touch()
-            self.workspace.database.checkpoint()
+            self.workspace.checkpoint()
             self.dirty = False
             self.status_save.setText("Saved")
             write_marker(str(self.workspace.db_path), self.workspace.name, dirty=False)
@@ -1117,10 +1117,10 @@ class MainWindow(QMainWindow):
             self.status_pages.setText("0 pages")
             return
         counts = self.editor.layout.library_counts() if self.editor is not None else {
-            "imported": self.workspace.database.documents.count(self.workspace.id),
+            "imported": self.workspace.document_service.document_count(),
             "placed": 0,
         }
-        pages = self.workspace.database.pages.count(self.workspace.id)
+        pages = self.workspace.document_service.page_count()
         self.status_documents.setText(
             f"{counts['imported']} imported | {counts['placed']} placed"
         )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from contextlib import contextmanager
 from typing import Iterable, Sequence
 
 from core.logging_setup import get_logger
@@ -300,6 +301,30 @@ class LayoutService:
     @property
     def db(self):
         return self._workspace.database
+
+    # ---------------------------------------------------------------- transactions
+    @contextmanager
+    def unit_of_work(self):
+        """Provide a single database transaction spanning multiple repositories.
+
+        Repository methods each open their own transaction.  When a service
+        operation needs to touch several tables atomically (for example, create
+        a page, insert items, and update the project timestamp in one go), use
+        this context manager so either every change commits or none do.
+
+        Usage::
+
+            with self.unit_of_work():
+                page = self.add_page(...)
+                self.insert_items(items)
+                self.project.touch()
+                self.db.projects.update(self.project)
+
+        The underlying connection's ``transaction()`` context manager is reused,
+        so nested calls are safe (they share the same connection).
+        """
+        with self.db.db.transaction():
+            yield
 
     # -------------------------------------------------------------------- reads
     def pages(self) -> list[PdfPage]:

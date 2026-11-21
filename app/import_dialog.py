@@ -551,4 +551,4 @@ class ImportDialog(QDialog):
 
 
 def workspace_categories(workspace):
-    return workspace.database.categories.list_for_project(workspace.id)
+    return workspace.document_service.categories()
