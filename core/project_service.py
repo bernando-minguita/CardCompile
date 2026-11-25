@@ -13,6 +13,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core.layout_service import LayoutService
 
 from core.document_service import DocumentService
 from core.import_service import ImportService
@@ -116,12 +120,14 @@ class ProjectWorkspace:
         """Flush the WAL so the project database file on disk is complete.
 
         Safe to call multiple times; a no-op when the database is already closed.
+
+        Failures are deliberately *not* swallowed: callers (``save_project``,
+        ``_autosave``) must see them so they can report the failure, keep the
+        dirty flag and fall back to a retry instead of silently pretending the
+        work was saved.
         """
-        try:
-            if self.database.db.is_open:
-                self.database.checkpoint()
-        except Exception:  # pragma: no cover - best effort
-            LOGGER.debug("Checkpoint failed")
+        if self.database.db.is_open:
+            self.database.checkpoint()
 
     def touch(self) -> None:
         self.project.touch()

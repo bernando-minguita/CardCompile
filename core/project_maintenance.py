@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from core.logging_setup import get_logger
+from core.paths import PROJECT_DB_FILENAME
 
 LOGGER = get_logger("projects")
 
